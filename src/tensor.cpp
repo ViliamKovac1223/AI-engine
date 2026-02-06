@@ -1,4 +1,5 @@
 #include "tensor.hpp"
+#include <vector>
 
 Tensor::Tensor(const std::vector<size_t>& shape, float defaultValue)
     :shape(shape)
@@ -45,7 +46,7 @@ std::ostream& operator<<(std::ostream& os, const Tensor& tensor) {
     if (tensor.shape.size() == 1) {
         os << "[";
         for (size_t i = 0; i < tensor.totalSize; ++i) {
-            os << tensor.data[i] << (i != tensor.totalSize - 1 ? " " : "");
+            os << tensor.data[i] << (i != tensor.totalSize - 1 ? ", " : "");
         }
         os << "]";
         return os;
@@ -74,7 +75,7 @@ std::ostream& Tensor::toStreamHelper(std::ostream& os, const Tensor& tensor, siz
 
     // Print actuall data
     for (size_t i = 0; i < tensor.shape.back(); i++) {
-        os << tensor.data[i + *usedData] << (i != tensor.shape.back() - 1 ? " " : "");
+        os << tensor.data[i + *usedData] << (i != tensor.shape.back() - 1 ? ", " : "");
     }
     *usedData += tensor.shape.back();
 
@@ -100,19 +101,94 @@ double Tensor::getRandomNumber() {
     return dis(gen);
 }
 
-Tensor Tensor::operator+(const Tensor& other) {
+Tensor Tensor::mulmat(const Tensor& other) const {
+    if (this->shape.size() == 0 || other.shape.size() != this->shape.size())
+        return Tensor({0}, 0);
+
+    // Calculate mulmat for 1D tensor (just do dot product)
+    if (this->shape.size() == 1) {
+        double finalProduct = 0.0;
+        for (size_t i = 0; i < this->shape[0]; i++) {
+            finalProduct += this->data[i] * other.data[i];
+        }
+        return Tensor({1}, finalProduct);
+    }
+
+    // Make shape for result
+    std::vector<size_t> resShape(this->shape);
+    resShape[this->shape.size() - 2] = this->shape[this->shape.size() - 2];
+    resShape[this->shape.size() - 1] = other.shape[this->shape.size() - 1];
+    Tensor result(resShape, 0);
+
+    // Make empty shapeIndexes
+    // This will serve as marker
+    // To mark currently calculated batch dimension
+    std::vector<size_t> shapeIndexes;
+    shapeIndexes.resize(this->shape.size());
+
+    // Perform mulmat
+    mulmat(other, result, shapeIndexes, 0);
+    return result;
+}
+
+void Tensor::mulmat(const Tensor& other, Tensor& res, std::vector<size_t>& shapeIndexes, size_t dim) const {
+    // Go deeper in batch dimensions till we get to last 2 dims so we can
+    // perform matrix mulmat
+    if (this->shape.size() - 2 != dim) {
+        for (size_t i = 0; i < this->shape[dim]; i++) {
+            shapeIndexes[dim] = i;
+            mulmat(other, res, shapeIndexes, dim + 1);
+        }
+        return;
+    }
+
+    // Calculate the base offset in memory to get the data we need (last two
+    // dimensions, offset by specific indexes in previous dimensions)
+    size_t baseIndex = getMemoryOffset(shapeIndexes, *this);
+    size_t otherBaseIndex = getMemoryOffset(shapeIndexes, other);
+    size_t resBaseIndex = getMemoryOffset(shapeIndexes, res);
+
+    // Calculate mulmat
+    size_t rows = this->shape[this->shape.size() - 2];
+    size_t cols = this->shape[this->shape.size() - 1];
+    size_t otherCols = other.shape[other.shape.size() - 1];
+    for (size_t i = 0; i < rows; i++) {
+        for (size_t j = 0; j < otherCols; j++) {
+            for (size_t k = 0; k < cols; k++) {
+                res.data[resBaseIndex + i * otherCols + j] +=
+                    this->data[baseIndex + i * cols + k] *
+                    other.data[otherBaseIndex + k * otherCols + j];
+            }
+        }
+    }
+}
+
+size_t Tensor::getMemoryOffset(std::vector<size_t> shapeIndexes, const Tensor& t) {
+    size_t baseIndex = 0;
+    for (size_t i = 0; i < shapeIndexes.size() - 2; i++) {
+        const size_t dim = shapeIndexes[i];
+        size_t nextSizes = 1;
+        for (size_t j = i + 1; j < t.shape.size(); j++) {
+            nextSizes *= t.shape[j];
+        }
+        baseIndex += dim * nextSizes;
+    }
+    return baseIndex;
+}
+
+Tensor Tensor::operator+(const Tensor& other) const {
     return this->tensorsOperations(other, [](double a, double b) {return a + b;});
 }
 
-Tensor Tensor::operator*(const Tensor& other) {
+Tensor Tensor::operator*(const Tensor& other) const {
     return this->tensorsOperations(other, [](double a, double b) {return a * b;});
 }
 
-Tensor Tensor::operator-(const Tensor& other) {
+Tensor Tensor::operator-(const Tensor& other) const {
     return *this + (-1.0 * other);
 }
 
-Tensor Tensor::operator/(const Tensor& other) {
+Tensor Tensor::operator/(const Tensor& other) const {
     Tensor factor = 1.0 / other;
     return *this * factor;
 }
