@@ -48,6 +48,26 @@ public:
      */
     Tensor mulmat(const Tensor& other) const;
 
+    /**
+     * @return Mean from Tensor's values
+     */
+    Tensor mean() const;
+
+    /**
+     * @return Max value from Tensor
+     */
+    Tensor max() const;
+
+    /**
+     * @return Min value from Tensor
+     */
+    Tensor min() const;
+
+    /**
+     * @return Sum from Tensor's values
+     */
+    Tensor sum() const;
+
     // Math operations with numbers
     friend Tensor operator+(const double number, const Tensor& other);
     friend Tensor operator+(const Tensor& other, const double number);

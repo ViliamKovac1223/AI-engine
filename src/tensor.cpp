@@ -244,3 +244,53 @@ Tensor Tensor::tensorsOperations(const double number, std::function<double(doubl
 
     return result;
 }
+
+Tensor Tensor::mean() const {
+    Tensor result({1}, 0);
+
+    // Calculate mean and save it to result tensor
+    double sum = 0;
+    for (size_t i = 0; i < this->totalSize; i++)
+        sum += this->data[i];
+    result.data[0] = sum / this->totalSize;
+
+    return result;
+}
+
+Tensor Tensor::max() const {
+    Tensor result({1}, 0);
+
+    // Find max and save it to the result tensor
+    double max = this->data[0];
+    for (size_t i = 1; i < this->totalSize; i++)
+        if (this->data[i] > max)
+            max = this->data[i];
+    result.data[0] = max;
+
+    return result;
+}
+
+Tensor Tensor::min() const {
+    Tensor result({1}, 0);
+
+    // Find min and save it to the result tensor
+    double min = this->data[0];
+    for (size_t i = 1; i < this->totalSize; i++)
+        if (this->data[i] < min)
+            min = this->data[i];
+    result.data[0] = min;
+
+    return result;
+}
+
+Tensor Tensor::sum() const {
+    Tensor result({1}, 0);
+
+    // Calculate sum and save it to result tensor
+    double sum = 0;
+    for (size_t i = 0; i < this->totalSize; i++)
+        sum += this->data[i];
+    result.data[0] = sum;
+
+    return result;
+}
