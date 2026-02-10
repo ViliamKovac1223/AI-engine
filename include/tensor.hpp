@@ -6,26 +6,59 @@
 #include <random>
 #include <iostream>
 #include <memory>
+#include <unordered_set>
 #include <vector>
 #include <ostream>
 #include <functional>
 
 class Tensor {
 private:
-    std::unique_ptr<double[]> data;
+    struct HashFunction {
+        // Calculate hash from tensor
+        size_t operator()(const Tensor& tensor) const {
+            size_t dataHash = 0;
+            for (size_t i = 0; i < tensor.totalSize; i++) {
+                dataHash ^= std::hash<double>()(tensor.data[i]);
+            }
+            size_t shapeHash = 0;
+            for (size_t i = 0; i < tensor.shape.size(); i++) {
+                shapeHash ^= std::hash<size_t>()(tensor.shape[i]);
+            }
+
+            return dataHash ^ shapeHash;
+        }
+    };
+
+    std::shared_ptr<double[]> data;
     std::vector<size_t> shape;
     size_t totalSize;
+
+    bool requiresGrad;
+    bool isGradInit;
+    mutable std::shared_ptr<std::function<void()>> _backward;
+    mutable std::unordered_set<Tensor, HashFunction> prev;
+    mutable std::string operation;
 
     static inline std::mt19937 gen;
     static inline std::uniform_real_distribution<double> dis{0.0, 1.0};
 
 public:
+    mutable std::shared_ptr<Tensor> grad;
+
     /**
      * Constructor for Tensor
      * @param shape Defines shape (dimensions) of the new tensor
      * @param defaultValue Value that tensor's elements will be initialized with
      */
-    Tensor(const std::vector<size_t>& shape, float defaultValue);
+    Tensor(const std::vector<size_t>& shape, double defaultValue);
+
+    /**
+     * Constructor for Tensor
+     * @param shape Defines shape (dimensions) of the new tensor
+     * @param defaultValue Value that tensor's elements will be initialized with
+     * @param requiresGrad set if gradient is required for this tensor
+     */
+    Tensor(const std::vector<size_t>& shape, double defaultValue, bool requiresGrad);
 
     /**
      * Constructor for Tensor. Fills elements with randomly generated values.
@@ -33,50 +66,87 @@ public:
      */
     Tensor(const std::vector<size_t>& shape);
 
+    /**
+     * Constructor for Tensor. Fills elements with randomly generated values.
+     * @param shape Defines shape (dimensions) of the new tensor
+     * @param requiresGrad set if gradient is required for this tensor
+     */
+    Tensor(const std::vector<size_t>& shape, bool requiresGrad);
+
+    /**
+     * Constructor for Tensor. Fills elements with randomly generated values.
+     * @param shape Defines shape (dimensions) of the new tensor
+     * @param requiresGrad set if gradient is required for this tensor
+     * @param operation string operation that was used in creation of this tensor
+     * @param children Nodes that this node was created from
+     */
+    Tensor(const std::vector<size_t>& shape,
+        bool requiresGrad, const std::string& operation,
+        const std::unordered_set<Tensor, HashFunction>& children);
+
+    /**
+     * Constructor for Tensor
+     * @param shape Defines shape (dimensions) of the new tensor
+     * @param defaultValue Value that tensor's elements will be initialized with
+     * @param requiresGrad set if gradient is required for this tensor
+     * @param operation string operation that was used in creation of this tensor
+     * @param children Nodes that this node was created from
+     */
+    Tensor(const std::vector<size_t>& shape, double defaultValue,
+        bool requiresGrad, const std::string& operation,
+        const std::unordered_set<Tensor, HashFunction>& children);
+
+    /**
+     * Do backward propagation from this node to all its children nodes.
+     * This works only on scalar tensors.
+     */
+    void backward();
+
     friend std::ostream& operator<<(std::ostream& os, const Tensor& tensor);
 
     // Math operations with other Tensors
-    Tensor operator+(const Tensor& other) const;
-    Tensor operator-(const Tensor& other) const;
-    Tensor operator*(const Tensor& other) const;
-    Tensor operator/(const Tensor& other) const;
+    Tensor operator+(Tensor& other);
+    Tensor operator-(Tensor& other);
+    Tensor operator*(Tensor& other);
+    Tensor operator/(Tensor& other);
+    bool operator==(const Tensor& other) const;
 
     /**
      * Computes mulmat operation at tensors
      * @param other Second tensor for mulmat operation
      * @return Result of mulmat as tensor
      */
-    Tensor mulmat(const Tensor& other) const;
+    Tensor mulmat(Tensor& other);
 
     /**
      * @return Mean from Tensor's values
      */
-    Tensor mean() const;
+    Tensor mean();
 
     /**
      * @return Max value from Tensor
      */
-    Tensor max() const;
+    Tensor max();
 
     /**
      * @return Min value from Tensor
      */
-    Tensor min() const;
+    Tensor min();
 
     /**
      * @return Sum from Tensor's values
      */
-    Tensor sum() const;
+    Tensor sum();
 
     // Math operations with numbers
-    friend Tensor operator+(const double number, const Tensor& other);
-    friend Tensor operator+(const Tensor& other, const double number);
-    friend Tensor operator-(const double number, const Tensor& other);
-    friend Tensor operator-(const Tensor& other, const double number);
-    friend Tensor operator*(const double number, const Tensor& other);
-    friend Tensor operator*(const Tensor& other, const double number);
-    friend Tensor operator/(const double number, const Tensor& other);
-    friend Tensor operator/(const Tensor& other, const double number);
+    friend Tensor operator+(double number, Tensor& other);
+    friend Tensor operator+(Tensor& other, double number);
+    friend Tensor operator-(double number, Tensor& other);
+    friend Tensor operator-(Tensor& other, double number);
+    friend Tensor operator*(double number, Tensor& other);
+    friend Tensor operator*(Tensor& other, double number);
+    friend Tensor operator/(double number, Tensor& other);
+    friend Tensor operator/(Tensor& other, double number);
 
     /**
      * Define seed for random generation. This seed will be used for every new
@@ -110,27 +180,36 @@ private:
 
     /**
      * Perform math operation on Tensors.
-     * Example usage:
-     this->tensorsOperations(other, [](double a, double b) {return a + b;});
-     * @param other Second tensor to do math operation on
-     * @param operation Function that will be called at every element from
-     * tensors, result will be stored in the result tensor
+     * @param a First tensor to do math operation on
+     * @param b Second tensor to do math operation on
+     * @param operation String representing the operation. Supported values "+",
+     * "-", "/", "*", if unsported value is given then returned result is tensor
+     * filled with zeroes
      * @return Returns result tensor
      */
-    Tensor tensorsOperations(const Tensor& other,
-        std::function<double(double, double)> operation) const;
+    static Tensor tensorsOperations(Tensor& a, Tensor& b, std::string operation);
 
     /**
      * Perform math operation on Tensor and number.
-     * Example usage:
-     this->tensorsOperations(number, [](double a, double b) {return a + b;});
-     * @param number Second number to do math operation on. This number will be 'b' in example above
-     * @param operation Function that will be called at every element from
-     * tensor and number, result will be stored in the result tensor
+     * @param a First tensor to do math operation on
+     * @param number Second number to do math operation on.
+     * @param operation String representing the operation. Supported values "+",
+     * "-", "/", "*", if unsported value is given then returned result is tensor
+     * filled with zeroes
      * @return Returns result tensor
      */
-    Tensor tensorsOperations(const double number,
-        std::function<double(double, double)> operation) const;
+    static Tensor tensorsOperations(Tensor& a, double number, std::string operation);
+
+    /**
+     * Perform math operation on Tensor and number.
+     * @param number First number to do math operation on.
+     * @param a Second tensor to do math operation on
+     * @param operation String representing the operation. Supported values "+",
+     * "-", "/", "*", if unsported value is given then returned result is tensor
+     * filled with zeroes
+     * @return Returns result tensor
+     */
+    static Tensor tensorsOperations(double number, Tensor& a, std::string operation);
 
     /**
      * Recursively calculates mulmat on tensors, and saves result to the res.
@@ -140,8 +219,8 @@ private:
      * (in manual call resize to the this->shape.size())
      * @param dim Current dimension (in manual call set to 0)
      */
-    void mulmat(const Tensor& other, Tensor& res,
-        std::vector<size_t>& shapeIndexes, size_t dim) const;
+    void mulmat(Tensor& other, Tensor& res,
+        std::vector<size_t>& shapeIndexes, size_t dim);
 
     /**
      * Calculate offset for t.data, based on already processed indexes (shapeIndexes)
