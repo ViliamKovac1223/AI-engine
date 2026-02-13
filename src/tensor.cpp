@@ -86,7 +86,7 @@ std::ostream& operator<<(std::ostream& os, const Tensor& tensor) {
         const size_t dim = tensor.shape[i];
         os << dim << (i != tensor.shape.size() - 1 ? " " : "");
     }
-    os << "]" << std::endl;
+    os << "]" << " ,requiresGrad: " << tensor.requiresGrad << std::endl;
 
     // Print 1D tensor
     if (tensor.shape.size() == 1) {
@@ -104,6 +104,14 @@ std::ostream& operator<<(std::ostream& os, const Tensor& tensor) {
     Tensor::toStreamHelper(os, tensor, 0, &usedData);
     os << "]";
     return os;
+}
+
+double Tensor::operator[](size_t index) const {
+    return data[index];
+}
+
+double& Tensor::operator[](size_t index) {
+    return data[index];
 }
 
 std::ostream& Tensor::toStreamHelper(std::ostream& os, const Tensor& tensor, size_t startingDim, size_t * usedData) {
@@ -145,6 +153,62 @@ void Tensor::seed(uint64_t seed) {
 
 double Tensor::getRandomNumber() {
     return dis(gen);
+}
+
+Tensor Tensor::pow(double n) {
+    Tensor out(this->shape, 0.0);
+    bool requiresGrad = this->requiresGrad;
+    if (requiresGrad) {
+        std::unordered_set<Tensor, HashFunction> children = {*this};
+        out = Tensor(this->shape, 0.0, requiresGrad, operation, children);
+    }
+
+    // Do the exp operation at data
+    for (size_t i = 0; i < this->totalSize; ++i) {
+        out[i] = std::pow(this->data[i], n);
+    }
+
+    if (!requiresGrad)
+        return out;
+
+    Tensor& a = *this;
+    // Define backward function for backpropagation if needed
+    out._backward = std::make_shared<std::function<void()>>([&a, out, n]() {
+        // Power Rule: n * x^(n-1)
+        for (size_t i = 0; i < a.totalSize; ++i) {
+            double localGrad = n * std::pow(a.data[i], n - 1);
+            a.grad->data[i] += out.grad->data[i] * localGrad;
+        }
+    });
+
+    return out;
+}
+
+Tensor Tensor::exp() {
+    Tensor out(this->shape, 0.0);
+    bool requiresGrad = this->requiresGrad;
+    if (requiresGrad) {
+        std::unordered_set<Tensor, HashFunction> children = {*this};
+        out = Tensor(this->shape, 0.0, requiresGrad, operation, children);
+    }
+
+    // Do the exp operation at data
+    for (size_t i = 0; i < this->totalSize; ++i) {
+        out[i] = std::exp(this->data[i]);
+    }
+
+    if (!requiresGrad)
+        return out;
+
+    Tensor& a = *this;
+    // Define backward function for backpropagation if needed
+    out._backward = std::make_shared<std::function<void()>>([&a, out]() {
+        for (size_t i = 0; i < a.totalSize; ++i) {
+            a.grad->data[i] += out.data[i] * out.grad->data[i];
+        }
+    });
+
+    return out;
 }
 
 Tensor Tensor::mulmat(Tensor& other) {
@@ -324,14 +388,19 @@ Tensor operator/(Tensor& other, const double number) {
 }
 
 Tensor Tensor::tensorsOperations(Tensor& a, Tensor& b, std::string operation) {
-    Tensor result(a.shape, 0.0);
+    bool isScalar = a.totalSize == 1 || b.totalSize == 1;
+    auto resShape = a.shape;
+    if (isScalar && a.totalSize == 1)
+        resShape = b.shape;
+
+    Tensor result(resShape, 0.0);
     bool requiresGrad = a.requiresGrad || b.requiresGrad;
     if (requiresGrad) {
         std::unordered_set<Tensor, HashFunction> children = {a, b};
-        result = Tensor(a.shape, 0.0, requiresGrad, operation, children);
+        result = Tensor(resShape, 0.0, requiresGrad, operation, children);
     }
 
-    if (a.compareShape(b) == false)
+    if (a.compareShape(b) == false && !isScalar)
         return result;
 
     std::unordered_map<std::string, std::function<double(double, double)>> operationMap{
@@ -339,20 +408,37 @@ Tensor Tensor::tensorsOperations(Tensor& a, Tensor& b, std::string operation) {
         {"*", [](double a, double b) {return a * b;}},
     };
 
+    Tensor& scalar = a;
+    Tensor& t = b;
+    if (isScalar && b.totalSize == 1) {
+        t = a;
+        scalar = b;
+    }
+
     // Do basic math operation between tensors
-    if (operationMap.find(operation) != operationMap.end())
-        for (size_t i = 0; i < a.totalSize; i++)
-            result.data[i] = operationMap.at(operation)(a.data[i], b.data[i]);
+    if (operationMap.find(operation) != operationMap.end()) {
+        for (size_t i = 0; i < t.totalSize; i++) {
+            if (!isScalar)
+                result.data[i] = operationMap.at(operation)(a.data[i], b.data[i]);
+            else
+                result.data[i] = operationMap.at(operation)(t[i], scalar[0]);
+        }
+    }
 
     if (!requiresGrad)
         return result;
 
     // Define backward function for calculating gradient if needed
-    result._backward = std::make_shared<std::function<void()>>([operationMap, operation, &result, a, b]() {
+    result._backward = std::make_shared<std::function<void()>>([operationMap, operation, &result, a, b, t, scalar, isScalar]() {
         for (size_t i = 0; i < result.grad->totalSize; i++) {
             if (operation == "*") {
-                a.grad->data[i] += result.grad->data[i] * b.data[i];
-                b.grad->data[i] += result.grad->data[i] * a.data[i];
+                if (!isScalar) {
+                    a.grad->data[i] += result.grad->data[i] * b.data[i];
+                    b.grad->data[i] += result.grad->data[i] * a.data[i];
+                } else {
+                    t.grad->data[i] += result.grad->data[i] * scalar.data[0];
+                    scalar.grad->data[i] += result.grad->data[i] * t.data[i];
+                }
             } else if (operation == "+") {
                 a.grad->data[i] += result.grad->data[i];
                 b.grad->data[i] += result.grad->data[i];
@@ -568,8 +654,6 @@ Tensor Tensor::sum() {
     // Add backward function for backward propagation
     Tensor& a = *this;
     result._backward = std::make_shared<std::function<void()>>([&a, &result]() {
-        double n = (double) a.totalSize;
-
         for (size_t i = 0; i < a.grad->totalSize; i++) {
             a.grad->data[i] += result.grad->data[0];
         }
@@ -606,4 +690,18 @@ void Tensor::backward() {
         if ((*it)->_backward != nullptr)
             (*(*it)->_backward)();
     }
+}
+
+void Tensor::resetGrad() {
+    this->isGradInit = false;
+    this->grad = nullptr;
+    if (requiresGrad)
+        this->grad = std::make_shared<Tensor>(shape, 0.0);
+    this->_backward = nullptr;
+    this->operation = "";
+    this->prev.clear();
+}
+
+const std::vector<size_t>& Tensor::getShape() const {
+    return this->shape;
 }

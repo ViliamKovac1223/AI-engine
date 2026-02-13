@@ -102,7 +102,16 @@ public:
      */
     void backward();
 
+    /**
+     * Reset variables that are used to calculate grad
+     */
+    void resetGrad();
+
     friend std::ostream& operator<<(std::ostream& os, const Tensor& tensor);
+
+    // Overload the [] operator
+    double operator[](size_t index) const;
+    double& operator[](size_t index);
 
     // Math operations with other Tensors
     Tensor operator+(Tensor& other);
@@ -117,6 +126,17 @@ public:
      * @return Result of mulmat as tensor
      */
     Tensor mulmat(Tensor& other);
+
+    /**
+     * Computes exp operation on tensor
+     */
+    Tensor exp();
+
+    /**
+     * Raises tensor to the power of n
+     * @param n Exponent
+     */
+    Tensor pow(double n);
 
     /**
      * @return Mean from Tensor's values
@@ -154,6 +174,12 @@ public:
      * @param Seed for random generation
      */
     static void seed(uint64_t seed);
+
+    /**
+     * Returns shape of the tensor
+     * @return Shape
+     */
+    const std::vector<size_t>& getShape() const;
 
 private:
     /**
