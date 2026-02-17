@@ -6,7 +6,7 @@ backpropagation functionality, which is what this library provides. This is not
 meant to be used in production systems, and it is only for educational
 purposes.
 
-## Math Operations and Backpropagation 
+## Math Operations and Backpropagation
 Supported math operations are:
 
 - Addition
@@ -21,7 +21,7 @@ Supported math operations are:
 - Sum (returns scalar)
 - Backpropagation (backward function)
 
-## Use of library
+## Use of Library
 To use this library in project we recommend to use this as header-only library.
 To get this single header, you can compile it with following commands.
 
@@ -56,5 +56,5 @@ Results of this model are:
 - MSE loss on evaluation data after training is ``0.062``
 
 To get this example code running, don't forget to obtain a header-only
-version of this library and put it in include folder, more details in [section above](##example-code).
+version of this library and put it in include folder, more details in [section above](##use-of-library).
 Then just use included Makefile.
