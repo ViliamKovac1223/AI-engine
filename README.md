@@ -36,3 +36,25 @@ Generator supports following options (flags):
 - ``--root <path_to_library>`` This configures a path to the library source files. Default path is ``.``.
 - ``--out <path_for_header>`` This configures a path where single header file will be generated. Default path is ``./example/include/tensor.hpp``.
 - ``--impl-macro <const_header_guard>`` This configures what header guard will be used before implementation inside of a header. Default is ``TENSOR_LIB_IMPL``.
+
+## Example Code
+This project includes [example of simple linear model](example/). This code
+showcases simple linear model for predicting rent prices. Dataset is stored in
+[dataset.hpp](example/include/dataset.hpp) for simplicity, the original data is
+from
+[archive.ics.uci.edu](https://archive.ics.uci.edu/dataset/555/apartment+for+rent+classified),
+and this data is licensed at the original dataset license.
+
+The example code starts with normalizing the data (scale data between 0.0 and
+1.0), and splitting them between training and evaluation data. After training
+loop we evaluate this model on evaluation data. Also seed is set for
+reproducibility.
+
+Results of this model are:
+- Initial MSE loss (before training) starts at ``1.54212``
+- MSE loss on training data after training is ``0.0128``
+- MSE loss on evaluation data after training is ``0.062``
+
+To get this example code running, don't forget to obtain a header-only
+version of this library and put it in include folder, more details in [section above](##example-code).
+Then just use included Makefile.
